@@ -24,6 +24,8 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger("video-bot")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.WARNING)
 
 URL_RE = re.compile(r"https?://[^\s<>]+", re.IGNORECASE)
 ALLOWED_HOSTS = (
