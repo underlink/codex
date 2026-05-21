@@ -116,7 +116,7 @@ def normalize_video(input_path: Path, download_dir: Path) -> Path:
 
 
 def download_video(url: str, download_dir: Path) -> tuple[Path, str | None]:
-    output_template = str(download_dir / "%(title).80s-%(id)s.%(ext)s")
+    output_template = str(download_dir / "download-%(id).40s.%(ext).10s")
     max_bytes = MAX_VIDEO_MB * 1024 * 1024
 
     ydl_opts = {
@@ -127,6 +127,9 @@ def download_video(url: str, download_dir: Path) -> tuple[Path, str | None]:
             f"best[height<=1920][ext=mp4]/best"
         ),
         "merge_output_format": "mp4",
+        "restrictfilenames": True,
+        "windowsfilenames": True,
+        "trim_file_name": 80,
         "noplaylist": True,
         "geo_bypass": True,
         "retries": 3,
