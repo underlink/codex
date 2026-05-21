@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -43,6 +44,10 @@ MAX_VIDEO_MB = int(os.getenv("MAX_VIDEO_MB", "45"))
 DOWNLOAD_TIMEOUT_SECONDS = int(os.getenv("DOWNLOAD_TIMEOUT_SECONDS", "180"))
 YTDLP_COOKIES_FILE = os.getenv("YTDLP_COOKIES_FILE", "").strip()
 PORT = int(os.getenv("PORT", "0") or "0")
+USER_AGENT = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+)
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -79,6 +84,37 @@ def video_size_mb(path: Path) -> float:
     return path.stat().st_size / 1024 / 1024
 
 
+def normalize_video(input_path: Path, download_dir: Path) -> Path:
+    output_path = download_dir / f"{input_path.stem}-telegram.mp4"
+    command = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(input_path),
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-vf",
+        "scale=trunc(iw*sar/2)*2:trunc(ih/2)*2,setsar=1",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-movflags",
+        "+faststart",
+        str(output_path),
+    ]
+    subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    return output_path
+
+
 def download_video(url: str, download_dir: Path) -> tuple[Path, str | None]:
     output_template = str(download_dir / "%(title).80s-%(id)s.%(ext)s")
     max_bytes = MAX_VIDEO_MB * 1024 * 1024
@@ -86,14 +122,22 @@ def download_video(url: str, download_dir: Path) -> tuple[Path, str | None]:
     ydl_opts = {
         "outtmpl": output_template,
         "format": (
-            f"bestvideo[height<=1920][ext=mp4][filesize<{max_bytes}]+"
-            f"bestaudio[ext=m4a]/best[height<=1920][ext=mp4][filesize<{max_bytes}]/best[ext=mp4]/best"
+            f"best[height<=1920][ext=mp4][filesize<{max_bytes}]/"
+            f"bestvideo[height<=1920][ext=mp4]+bestaudio[ext=m4a]/"
+            f"best[height<=1920][ext=mp4]/best"
         ),
         "merge_output_format": "mp4",
         "noplaylist": True,
+        "geo_bypass": True,
+        "retries": 3,
+        "fragment_retries": 3,
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 30,
+        "http_headers": {
+            "User-Agent": USER_AGENT,
+            "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7",
+        },
     }
 
     if YTDLP_COOKIES_FILE:
@@ -113,7 +157,22 @@ def download_video(url: str, download_dir: Path) -> tuple[Path, str | None]:
                 raise FileNotFoundError("Відеофайл не було створено.")
             downloaded = candidates[0]
 
-        return downloaded, info.get("title")
+        normalized = normalize_video(downloaded, download_dir)
+        return normalized, info.get("title")
+
+
+def user_friendly_download_error(exc: Exception) -> str:
+    text = str(exc).lower()
+    if "login" in text or "cookies" in text or "private" in text or "not available" in text:
+        return (
+            "Не вдалося дістати це відео. Facebook/Instagram просить авторизацію або обмежив доступ. "
+            "Для таких посилань потрібен cookies-файл."
+        )
+    if "unsupported url" in text:
+        return "Цей тип посилання не підтримався. Спробуйте відкрити відео і надіслати пряме посилання на reel/video."
+    if "ffmpeg" in text:
+        return "Відео завантажилось, але не вдалося підготувати його для Telegram."
+    return "Не вдалося завантажити це відео. Спробуйте інше посилання або пряме посилання на reel/video."
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -164,12 +223,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await status.edit_text("Не встиг завантажити відео. Спробуйте ще раз або збільшіть timeout.")
     except DownloadError as exc:
         logger.warning("Download failed: %s", exc)
-        await status.edit_text(
-            "Не вдалося завантажити це відео. Якщо воно приватне або потребує входу, додайте cookies-файл."
-        )
-    except Exception:
+        await status.edit_text(user_friendly_download_error(exc))
+    except subprocess.CalledProcessError as exc:
+        logger.warning("Video normalization failed: %s", exc.stderr[-1000:] if exc.stderr else exc)
+        await status.edit_text(user_friendly_download_error(exc))
+    except Exception as exc:
         logger.exception("Unexpected error")
-        await status.edit_text("Сталася помилка під час обробки посилання.")
+        await status.edit_text(user_friendly_download_error(exc))
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
