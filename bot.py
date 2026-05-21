@@ -4,6 +4,8 @@ import os
 import re
 import shutil
 import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -38,6 +40,28 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 MAX_VIDEO_MB = int(os.getenv("MAX_VIDEO_MB", "45"))
 DOWNLOAD_TIMEOUT_SECONDS = int(os.getenv("DOWNLOAD_TIMEOUT_SECONDS", "180"))
 YTDLP_COOKIES_FILE = os.getenv("YTDLP_COOKIES_FILE", "").strip()
+PORT = int(os.getenv("PORT", "0") or "0")
+
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+def start_health_server() -> None:
+    if not PORT:
+        return
+
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), HealthHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    logger.info("Health server is listening on port %s", PORT)
 
 
 def extract_supported_url(text: str) -> str | None:
@@ -151,6 +175,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("Заповніть TELEGRAM_BOT_TOKEN у файлі .env")
+
+    start_health_server()
 
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
