@@ -8,6 +8,10 @@ services:
         sync: false
       - key: TELEGRAM_BOT_TOKEN_OVERRIDE
         sync: false
+      - key: YTDLP_COOKIES_CONTENT
+        sync: false
+      - key: YTDLP_COOKIES_BASE64
+        sync: false
       - key: MAX_VIDEO_MB
         value: "45"
       - key: DOWNLOAD_TIMEOUT_SECONDS
