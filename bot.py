@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.constants import ChatAction
+from telegram.error import TimedOut
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
@@ -102,7 +103,7 @@ def normalize_video(input_path: Path, download_dir: Path) -> Path:
         "-preset",
         "veryfast",
         "-crf",
-        "23",
+        "26",
         "-c:a",
         "aac",
         "-b:a",
@@ -135,6 +136,7 @@ def download_video(url: str, download_dir: Path) -> tuple[Path, str | None]:
         "retries": 3,
         "fragment_retries": 3,
         "quiet": True,
+        "noprogress": True,
         "no_warnings": True,
         "socket_timeout": 30,
         "http_headers": {
@@ -220,7 +222,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         caption = title[:900] if title else None
         with video_path.open("rb") as video:
-            await message.reply_video(video=video, caption=caption, supports_streaming=True)
+            await message.reply_video(
+                video=video,
+                caption=caption,
+                supports_streaming=True,
+                read_timeout=300,
+                write_timeout=300,
+                connect_timeout=60,
+                pool_timeout=60,
+            )
         await status.delete()
     except asyncio.TimeoutError:
         await status.edit_text("Не встиг завантажити відео. Спробуйте ще раз або збільшіть timeout.")
@@ -230,6 +240,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     except subprocess.CalledProcessError as exc:
         logger.warning("Video normalization failed: %s", exc.stderr[-1000:] if exc.stderr else exc)
         await status.edit_text(user_friendly_download_error(exc))
+    except TimedOut:
+        await status.edit_text(
+            "Відео завантажилось, але Telegram не встиг прийняти файл. "
+            "Спробуйте ще раз або надішліть коротше відео."
+        )
     except Exception as exc:
         logger.exception("Unexpected error")
         await status.edit_text(user_friendly_download_error(exc))
@@ -243,7 +258,15 @@ def main() -> None:
 
     start_health_server()
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .read_timeout(120)
+        .write_timeout(300)
+        .connect_timeout(60)
+        .pool_timeout(60)
+        .build()
+    )
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
