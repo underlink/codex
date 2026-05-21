@@ -6,6 +6,8 @@ services:
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
+      - key: TELEGRAM_BOT_TOKEN_OVERRIDE
+        sync: false
       - key: MAX_VIDEO_MB
         value: "45"
       - key: DOWNLOAD_TIMEOUT_SECONDS
