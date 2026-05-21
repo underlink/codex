@@ -36,7 +36,7 @@ ALLOWED_HOSTS = (
     "www.fb.watch",
 )
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN_OVERRIDE", os.getenv("TELEGRAM_BOT_TOKEN", "")).strip()
 MAX_VIDEO_MB = int(os.getenv("MAX_VIDEO_MB", "45"))
 DOWNLOAD_TIMEOUT_SECONDS = int(os.getenv("DOWNLOAD_TIMEOUT_SECONDS", "180"))
 YTDLP_COOKIES_FILE = os.getenv("YTDLP_COOKIES_FILE", "").strip()
