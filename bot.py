@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 import os
 import re
@@ -44,6 +45,8 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN_OVERRIDE", os.getenv("TELEGRAM_BOT_TOK
 MAX_VIDEO_MB = int(os.getenv("MAX_VIDEO_MB", "45"))
 DOWNLOAD_TIMEOUT_SECONDS = int(os.getenv("DOWNLOAD_TIMEOUT_SECONDS", "180"))
 YTDLP_COOKIES_FILE = os.getenv("YTDLP_COOKIES_FILE", "").strip()
+YTDLP_COOKIES_CONTENT = os.getenv("YTDLP_COOKIES_CONTENT", "").strip()
+YTDLP_COOKIES_BASE64 = os.getenv("YTDLP_COOKIES_BASE64", "").strip()
 PORT = int(os.getenv("PORT", "0") or "0")
 USER_AGENT = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
@@ -83,6 +86,22 @@ def extract_supported_url(text: str) -> str | None:
 
 def video_size_mb(path: Path) -> float:
     return path.stat().st_size / 1024 / 1024
+
+
+def prepare_cookies_file(download_dir: Path) -> str | None:
+    if YTDLP_COOKIES_FILE:
+        return YTDLP_COOKIES_FILE
+
+    content = YTDLP_COOKIES_CONTENT
+    if YTDLP_COOKIES_BASE64:
+        content = base64.b64decode(YTDLP_COOKIES_BASE64).decode("utf-8")
+
+    if not content:
+        return None
+
+    cookies_path = download_dir / "cookies.txt"
+    cookies_path.write_text(content, encoding="utf-8")
+    return str(cookies_path)
 
 
 def normalize_video(input_path: Path, download_dir: Path) -> Path:
@@ -145,8 +164,9 @@ def download_video(url: str, download_dir: Path) -> tuple[Path, str | None]:
         },
     }
 
-    if YTDLP_COOKIES_FILE:
-        ydl_opts["cookiefile"] = YTDLP_COOKIES_FILE
+    cookies_file = prepare_cookies_file(download_dir)
+    if cookies_file:
+        ydl_opts["cookiefile"] = cookies_file
 
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
